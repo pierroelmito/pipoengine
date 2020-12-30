@@ -1,0 +1,4 @@
+#! /bin/sh
+
+ls *.h *.cpp pipoengine.inl *.shader
+
