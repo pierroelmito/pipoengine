@@ -1,4 +1,4 @@
 #! /bin/sh
 
-ls *.h *.cpp pipoengine.inl *.shader
+ls *.h *.cpp *.shader
 

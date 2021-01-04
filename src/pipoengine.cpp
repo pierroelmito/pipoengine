@@ -19,7 +19,12 @@ void SetCamera(Context& ctx, const mat4& proj, const mat4& view)
 	ctx.view = view;
 }
 
-Mesh MakeMesh(Context&, const std::vector<BaseVertex>& vertice, const std::vector<uint16_t>& indice)
+void SetLight(Context& ctx, const hmm_vec3& lightdir)
+{
+	ctx.lightdir = lightdir;
+}
+
+Mesh MakeMesh(Context& context, const std::vector<BaseVertex>& vertice, const std::vector<uint16_t>& indice)
 {
 	auto vid = sg_make_buffer({
 		.size = int(vertice.size() * sizeof(BaseVertex)),
@@ -31,7 +36,52 @@ Mesh MakeMesh(Context&, const std::vector<BaseVertex>& vertice, const std::vecto
 		.type = SG_BUFFERTYPE_INDEXBUFFER,
 		.content = &indice[0],
 	});
-	return { vid, iid, int(indice.size()) };
+	return { &context.plDefault, context.txWhite, vid, iid, int(indice.size()) };
+}
+
+Mesh MakeHMap(Context& context, int w, int h, hmm_vec2 min, hmm_vec2 max, const std::function<float(int, int)>& f)
+{
+	std::vector<BaseVertex> vertice;
+	std::vector<uint16_t> indice;
+
+	vertice.reserve(w * h);
+	indice.reserve(6 * (w - 1) * (h - 1));
+
+	for (int y = 0; y < h; ++y) {
+		const float ry = (float(y) / float(h - 1));
+		const float fy = min.Y + (max.Y - min.Y) * ry;
+		for (int x = 0; x < w; ++x) {
+			const float rx = (float(x) / float(w - 1));
+			const float fx = min.X + (max.X - min.X) * rx;
+			const float tz = f(x, y);
+			const float zl = f(x - 1, y);
+			const float zr = f(x + 1, y);
+			const float zu = f(x, y - 1);
+			const float zd = f(x, y + 1);
+			const float dx = zl - zr;
+			const float dy = zu - zd;
+			const hmm_vec3 n{ dx, dy, 2 };
+			vertice.push_back({
+				{ fx, fy, tz },
+				{ n.X, n.Y, n.Z },
+				{ rx, ry },
+				0xffff00ff
+			});
+		}
+	}
+
+	for (int y = 0; y < h - 1; ++y) {
+		for (int x = 0; x < w - 1; ++x) {
+			const uint16_t i0 = y * w + x;
+			const uint16_t i1 = i0 + 1;
+			const uint16_t i2 = i0 + w;
+			const uint16_t i3 = i1 + w;
+			const std::array<uint16_t, 6> face{ i0, i1, i2, i1, i3, i2 };
+			indice.insert(indice.end(), face.begin(), face.end());
+		}
+	}
+
+	return MakeMesh(context, vertice, indice);
 }
 
 std::optional<Mesh> LoadMesh(Context& context, std::string_view path)
@@ -137,21 +187,21 @@ void DrawMesh(Context& ctx, const Mesh& mesh, const Transform& t)
 	if (mesh.pcount <= 0)
 		return;
 
-	if (ctx.lastPip.id != ctx.plDefault.pl.id) {
-		ctx.lastPip = ctx.plDefault.pl;
-		sg_apply_pipeline(ctx.plDefault.pl);
-		ctx.plDefault.frame(ctx.view, ctx.proj);
+	if (ctx.lastPip.id != mesh.pip->pl.id) {
+		ctx.lastPip = mesh.pip->pl;
+		sg_apply_pipeline(mesh.pip->pl);
+		mesh.pip->frame(ctx);
 	}
 
 	const sg_bindings bd = {
 		.vertex_buffers = { mesh.vid },
 		.index_buffer = mesh.iid,
-		.fs_images = { ctx.txWhite.iid },
+		.fs_images = { mesh.diffuse.iid },
 	};
 
 	sg_apply_bindings(&bd);
 
-	ctx.plDefault.draw(t);
+	mesh.pip->draw(t);
 
 	sg_draw(0, mesh.pcount, 1);
 }
@@ -217,6 +267,8 @@ bool Init(Context& context)
 	constexpr auto flags = SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE;
 	context.window = SDL_CreateWindow("Window", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 1280, 720, flags);
 
+	SDL_SetRelativeMouseMode(SDL_TRUE);
+
 	context.glCtx = SDL_GL_CreateContext(context.window);
 	SDL_GL_SetSwapInterval(1);
 
@@ -227,15 +279,17 @@ bool Init(Context& context)
 	stm_setup();
 	sg_setup(&desc_sg);
 
+	//SDL_
+
 	context.plDefault = MakePipeline(context, &default_shader_desc);
-	context.plDefault.frame = [] (const mat4& view, const mat4& proj) {
+	context.plDefault.frame = [] (const Context& ctx) {
 		params_default_pass_t ubPass {
-			.view = view,
-			.proj = proj,
+			.view = ctx.view,
+			.proj = ctx.proj,
 		};
 		sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_params_default_pass, &ubPass, sizeof(ubPass));
 		params_default_lighting_t ubLighting {
-			.lightdir = { 0, 0, 1 },
+			.lightdir = ctx.lightdir,
 		};
 		sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_params_default_lighting, &ubLighting, sizeof(ubLighting));
 	};

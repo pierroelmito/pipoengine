@@ -18,6 +18,8 @@ namespace pipoengine {
 
 using mat4 = hmm_mat4;
 
+struct Context;
+
 struct Transform
 {
 	mat4 world;
@@ -34,7 +36,7 @@ struct BaseVertex
 struct Pipeline
 {
 	sg_pipeline pl{};
-	std::function<void(const mat4& view, const mat4& proj)> frame{};
+	std::function<void(const Context& ctx)> frame{};
 	std::function<void(const Transform&)> draw{};
 };
 
@@ -45,6 +47,8 @@ struct Texture
 
 struct Mesh
 {
+	Pipeline* pip{nullptr};
+	Texture diffuse{};
 	sg_buffer vid{};
 	sg_buffer iid{};
 	int pcount{0};
@@ -56,6 +60,7 @@ struct Context
 	SDL_GLContext glCtx{};
 	mat4 view;
 	mat4 proj;
+	hmm_vec3 lightdir;
 	int frameWidth{ 0 };
 	int frameHeight{ 0 };
 	lua_State* interp{ nullptr };
@@ -116,11 +121,18 @@ struct AttrInfo
 };
 
 Pipeline MakePipeline(Context&, const sg_shader_desc* (*fn)());
+
 Texture MakeTextureRGBA(int w, int h, const std::vector<uint32_t>& data);
+
 Mesh MakeMesh(Context&, const std::vector<BaseVertex>& vertice, const std::vector<uint16_t>& indice);
+Mesh MakeHMap(Context& ctx, int w, int h, hmm_vec2 min, hmm_vec2 max, const std::function<float(int, int)>& f);
 std::optional<Mesh> LoadMesh(Context& context, std::string_view path);
+
 void DrawMesh(Context& ctx, const Mesh& mesh, const Transform& t);
+
 void SetCamera(Context& ctx, const mat4& proj, const mat4& view);
+void SetLight(Context& ctx, const hmm_vec3& lightdir);
+
 bool Init(Context& context);
 bool Release(Context& context);
 

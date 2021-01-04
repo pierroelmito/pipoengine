@@ -48,7 +48,8 @@ in vec2 ptextcoord;
 out vec4 fragcolor;
 
 void main() {
-	float l = max(0, dot(lightdir, pnormal));
+	float ndotl = dot(lightdir, pnormal);
+	float l = pow(0.5 * (1 +  ndotl), 2);
 	fragcolor = vec4(l.xxx, 1) * pcolor * texture(texDiffuse, ptextcoord.xy);
 }
 
