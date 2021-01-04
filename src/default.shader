@@ -1,7 +1,8 @@
 
-@ctype mat4 hmm_mat4
-@ctype vec4 hmm_vec4
-@ctype vec3 hmm_vec3
+@ctype mat4 pipoengine::mat4
+@ctype vec4 pipoengine::vec4
+@ctype vec3 pipoengine::vec3
+@ctype vec2 pipoengine::vec2
 
 @vs vs_default
 

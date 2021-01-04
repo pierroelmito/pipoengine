@@ -19,7 +19,7 @@ void SetCamera(Context& ctx, const mat4& proj, const mat4& view)
 	ctx.view = view;
 }
 
-void SetLight(Context& ctx, const hmm_vec3& lightdir)
+void SetLight(Context& ctx, const vec3& lightdir)
 {
 	ctx.lightdir = lightdir;
 }
@@ -39,7 +39,7 @@ Mesh MakeMesh(Context& context, const std::vector<BaseVertex>& vertice, const st
 	return { &context.plDefault, context.txWhite, vid, iid, int(indice.size()) };
 }
 
-Mesh MakeHMap(Context& context, int w, int h, hmm_vec2 min, hmm_vec2 max, const std::function<float(int, int)>& f)
+Mesh MakeHMap(Context& context, int w, int h, vec2 min, vec2 max, const std::function<float(int, int)>& f)
 {
 	std::vector<BaseVertex> vertice;
 	std::vector<uint16_t> indice;
@@ -60,7 +60,7 @@ Mesh MakeHMap(Context& context, int w, int h, hmm_vec2 min, hmm_vec2 max, const 
 			const float zd = f(x, y + 1);
 			const float dx = zl - zr;
 			const float dy = zu - zd;
-			const hmm_vec3 n{ dx, dy, 2 };
+			const vec3 n{ dx, dy, 2 };
 			vertice.push_back({
 				{ fx, fy, tz },
 				{ n.X, n.Y, n.Z },

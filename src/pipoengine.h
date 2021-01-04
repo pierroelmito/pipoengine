@@ -17,6 +17,9 @@
 namespace pipoengine {
 
 using mat4 = hmm_mat4;
+using vec4 = hmm_vec4;
+using vec3 = hmm_vec3;
+using vec2 = hmm_vec2;
 
 struct Context;
 
@@ -60,7 +63,7 @@ struct Context
 	SDL_GLContext glCtx{};
 	mat4 view;
 	mat4 proj;
-	hmm_vec3 lightdir;
+	vec3 lightdir;
 	int frameWidth{ 0 };
 	int frameHeight{ 0 };
 	lua_State* interp{ nullptr };
@@ -125,13 +128,13 @@ Pipeline MakePipeline(Context&, const sg_shader_desc* (*fn)());
 Texture MakeTextureRGBA(int w, int h, const std::vector<uint32_t>& data);
 
 Mesh MakeMesh(Context&, const std::vector<BaseVertex>& vertice, const std::vector<uint16_t>& indice);
-Mesh MakeHMap(Context& ctx, int w, int h, hmm_vec2 min, hmm_vec2 max, const std::function<float(int, int)>& f);
+Mesh MakeHMap(Context& ctx, int w, int h, vec2 min, vec2 max, const std::function<float(int, int)>& f);
 std::optional<Mesh> LoadMesh(Context& context, std::string_view path);
 
 void DrawMesh(Context& ctx, const Mesh& mesh, const Transform& t);
 
 void SetCamera(Context& ctx, const mat4& proj, const mat4& view);
-void SetLight(Context& ctx, const hmm_vec3& lightdir);
+void SetLight(Context& ctx, const vec3& lightdir);
 
 bool Init(Context& context);
 bool Release(Context& context);
@@ -199,7 +202,6 @@ struct Runner {
 				//case SDL_KEYDOWN:
 				//	break;
 				//}
-				//state->handleEvent({ *this, e });
 				if (params.event)
 					params.event(context, data, { e });
 			}

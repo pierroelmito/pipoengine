@@ -9,7 +9,7 @@ public:
 	pe::Mesh test;
 	pe::Mesh model;
 	pe::Mesh ground;
-	hmm_vec2 camAngles{ 0, 0 };
+	pe::vec2 camAngles{ 0, 0 };
 };
 
 int fnYolo(lua_State* l)
