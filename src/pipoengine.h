@@ -51,7 +51,9 @@ struct Texture
 struct Mesh
 {
 	Pipeline* pip{nullptr};
+
 	Texture diffuse{};
+
 	sg_buffer vid{};
 	sg_buffer iid{};
 	int pcount{0};
@@ -59,17 +61,21 @@ struct Mesh
 
 struct Context
 {
+	int frameWidth{ 0 };
+	int frameHeight{ 0 };
 	SDL_Window* window{ nullptr };
 	SDL_GLContext glCtx{};
+
 	mat4 view;
 	mat4 proj;
 	vec3 lightdir;
-	int frameWidth{ 0 };
-	int frameHeight{ 0 };
+
 	lua_State* interp{ nullptr };
+
 	Pipeline plDefault{};
 	Texture txWhite{};
 	Texture txChecker{};
+
 	sg_pipeline lastPip{};
 };
 
@@ -123,12 +129,12 @@ struct AttrInfo
 	}
 };
 
-Pipeline MakePipeline(Context&, const sg_shader_desc* (*fn)());
+Pipeline MakePipeline(Context&, const sg_shader_desc* (*fn)(), std::function<void(const Context& ctx)> frame, std::function<void(const Transform&)> draw);
 
 Texture MakeTextureRGBA(int w, int h, const std::vector<uint32_t>& data);
 
 Mesh MakeMesh(Context&, const std::vector<BaseVertex>& vertice, const std::vector<uint16_t>& indice);
-Mesh MakeHMap(Context& ctx, int w, int h, vec2 min, vec2 max, const std::function<float(int, int)>& f);
+Mesh MakeHMap(Context& ctx, int ox, int oy, int w, int h, vec2 min, vec2 max, const std::function<float(int, int)>& f);
 std::optional<Mesh> LoadMesh(Context& context, std::string_view path);
 
 void DrawMesh(Context& ctx, const Mesh& mesh, const Transform& t);

@@ -8,42 +8,32 @@ class Game
 public:
 	pe::Mesh test;
 	pe::Mesh model;
-	pe::Mesh ground;
+	std::vector<std::pair<pe::vec2, pe::Mesh>> ground;
 	pe::vec2 camAngles{ 0, 0 };
 };
 
-int fnYolo(lua_State* l)
-{
-	return 0;
-}
-
 bool init(pe::Context& ctx, Game& g, const pe::InitParams& params)
 {
-	lua_register(ctx.interp, "yolo", fnYolo);
-
 	g.model = pe::LoadMesh(ctx, "pipo.ply").value_or(g.model);
 
-	const int hmsz = 34;
-	std::vector<float> heightData;
-	heightData.resize(hmsz * hmsz, 0.0f);
-	for (int y = 0; y < hmsz; ++y) {
-		for (int x = 0; x < hmsz; ++x) {
-			const float sc = 0.5f;
-			heightData[y * hmsz + x] = 0.6f * (sin(sc * x) + sin(sc * y)) - 2.0f;
+	const float gsz = 10.0f;
+	g.ground.reserve(5 * 5);
+	for (int i = -2; i <= 2; ++i) {
+		for (int j = -2; j <= 2; ++j) {
+			auto msh = pe::MakeHMap(ctx,
+				i * 24, j * 24,
+				25, 25,
+				{ -gsz, -gsz },
+				{  gsz,  gsz },
+				[&] (int x, int y) {
+					const float sc = 0.5f;
+					return 0.5f * (sin(sc * x) + sin(sc * y)) - 2.0f;
+				}
+			);
+			msh.diffuse = ctx.txChecker;
+			g.ground.push_back({ { i * 2.0f * gsz, j * 2.0f * gsz }, msh });
 		}
 	}
-
-	const float gsz = 10.0f;
-	g.ground = pe::MakeHMap(ctx,
-		hmsz - 2, hmsz - 2,
-		{ -gsz, -gsz },
-		{  gsz,  gsz },
-		[&] (int x, int y) {
-			const int ofs = (y + 1) * hmsz + x + 1;
-			return heightData[ofs];
-		}
-	);
-	g.ground.diffuse = ctx.txChecker;
 
 	const std::array<float, 2> uv{ 0.5f, 0.5f };
 	const std::array<float, 3> n { 0, 0, 1 };
@@ -80,21 +70,24 @@ bool draw(pe::Context& ctx, Game& g, const pe::DrawParams& params)
 
 		pe::SetCamera(
 			ctx,
-			HMM_Perspective(90.0f, w / float(h), 0.5f, 100.0f),
+			HMM_Perspective(90.0f, w / float(h), 0.1f, 100.0f),
 			camView
 		);
 
 		const float lightTime = 0.00008f * params.elapsed;
 		pe::SetLight(
 			ctx,
-			HMM_NormalizeVec3({ cos(lightTime), 0, sin(lightTime) })
+			HMM_NormalizeVec3({ 100.0f * cos(lightTime), 100.0f * sin(lightTime), 1 })
 		);
 
-		pe::DrawMesh(ctx, g.ground, { HMM_Translate({ 0.0f, 0.0f, 0.0f }) });
+		for (const auto& grd : g.ground)
+			pe::DrawMesh(ctx, grd.second, { HMM_Translate({ grd.first.X, grd.first.Y, 0.0f }) });
+
 		pe::DrawMesh(ctx, g.model, { HMM_Translate({ -1.0f, -1.0f, 0.0f }) });
 		pe::DrawMesh(ctx, g.model, { HMM_Translate({  1.0f, -1.0f, 0.0f }) });
 		pe::DrawMesh(ctx, g.model, { HMM_Translate({ -1.0f,  1.0f, 0.0f }) });
 		pe::DrawMesh(ctx, g.model, { HMM_Translate({  1.0f,  1.0f, 0.0f }) });
+
 		pe::DrawMesh(ctx, g.test, { HMM_Translate({ 0.0f, 0.0f, 2.0f }) });
 	});
 
@@ -104,15 +97,23 @@ bool draw(pe::Context& ctx, Game& g, const pe::DrawParams& params)
 bool event(pe::Context& ctx, Game& g, const pe::EventParams& params)
 {
 	const float mSensitivity = 0.2f;
-	SDL_Event e = params.evt;
+	const float maxa = 70.0f;
+
+	const SDL_Event& e = params.evt;
 	switch (e.type) {
 	case SDL_MOUSEMOTION:
-		g.camAngles.X -= mSensitivity * e.motion.xrel;
-		g.camAngles.Y += mSensitivity * e.motion.yrel;
+		g.camAngles.X = g.camAngles.X - mSensitivity * e.motion.xrel;
+		g.camAngles.Y = std::max(-maxa, std::min(maxa, g.camAngles.Y + mSensitivity * e.motion.yrel));
 		break;
 	default:
 		break;
 	}
+
+	return true;
+}
+
+bool update(pe::Context& ctx, Game& g, const pe::UpdateParams& params)
+{
 	return true;
 }
 
@@ -121,6 +122,7 @@ int main(int, char**)
 	Game g;
 	return pe::Run(g, {
 		.init = init,
+		.update = update,
 		.draw = draw,
 		.event = event,
 	});

@@ -39,7 +39,7 @@ Mesh MakeMesh(Context& context, const std::vector<BaseVertex>& vertice, const st
 	return { &context.plDefault, context.txWhite, vid, iid, int(indice.size()) };
 }
 
-Mesh MakeHMap(Context& context, int w, int h, vec2 min, vec2 max, const std::function<float(int, int)>& f)
+Mesh MakeHMap(Context& context, int ox, int oy, int w, int h, vec2 min, vec2 max, const std::function<float(int, int)>& f)
 {
 	std::vector<BaseVertex> vertice;
 	std::vector<uint16_t> indice;
@@ -53,11 +53,11 @@ Mesh MakeHMap(Context& context, int w, int h, vec2 min, vec2 max, const std::fun
 		for (int x = 0; x < w; ++x) {
 			const float rx = (float(x) / float(w - 1));
 			const float fx = min.X + (max.X - min.X) * rx;
-			const float tz = f(x, y);
-			const float zl = f(x - 1, y);
-			const float zr = f(x + 1, y);
-			const float zu = f(x, y - 1);
-			const float zd = f(x, y + 1);
+			const float tz = f(ox + x, oy + y);
+			const float zl = f(ox + x - 1, oy + y);
+			const float zr = f(ox + x + 1, oy + y);
+			const float zu = f(ox + x, oy + y - 1);
+			const float zd = f(ox + x, oy + y + 1);
 			const float dx = zl - zr;
 			const float dy = zu - zd;
 			const vec3 n{ dx, dy, 2 };
@@ -76,8 +76,13 @@ Mesh MakeHMap(Context& context, int w, int h, vec2 min, vec2 max, const std::fun
 			const uint16_t i1 = i0 + 1;
 			const uint16_t i2 = i0 + w;
 			const uint16_t i3 = i1 + w;
-			const std::array<uint16_t, 6> face{ i0, i1, i2, i1, i3, i2 };
-			indice.insert(indice.end(), face.begin(), face.end());
+			if ((x ^ y) & 1) {
+				const std::array<uint16_t, 6> face{ i0, i3, i2, i1, i3, i0 };
+				indice.insert(indice.end(), face.begin(), face.end());
+			} else {
+				const std::array<uint16_t, 6> face{ i0, i1, i2, i1, i3, i2 };
+				indice.insert(indice.end(), face.begin(), face.end());
+			}
 		}
 	}
 
@@ -220,7 +225,7 @@ Texture MakeTextureRGBA(int w, int h, const std::vector<uint32_t>& data)
 	return { iid };
 }
 
-Pipeline MakePipeline(Context&, const sg_shader_desc* (*fn)())
+Pipeline MakePipeline(Context&, const sg_shader_desc* (*fn)(), std::function<void(const Context& ctx)> frame, std::function<void(const Transform&)> draw)
 {
 	sg_shader shader = sg_make_shader(fn());
 
@@ -246,7 +251,11 @@ Pipeline MakePipeline(Context&, const sg_shader_desc* (*fn)())
 		},
 	};
 
-	return { sg_make_pipeline(&pip_desc) };
+	return {
+		sg_make_pipeline(&pip_desc),
+		frame,
+		draw,
+	};
 }
 
 bool Init(Context& context)
@@ -261,8 +270,10 @@ bool Init(Context& context)
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
 	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-	SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
-	SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 4);
+	//SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
+	//SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 4);
+	SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 0);
+	SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 1);
 
 	constexpr auto flags = SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE;
 	context.window = SDL_CreateWindow("Window", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 1280, 720, flags);
@@ -281,24 +292,27 @@ bool Init(Context& context)
 
 	//SDL_
 
-	context.plDefault = MakePipeline(context, &default_shader_desc);
-	context.plDefault.frame = [] (const Context& ctx) {
-		params_default_pass_t ubPass {
-			.view = ctx.view,
-			.proj = ctx.proj,
-		};
-		sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_params_default_pass, &ubPass, sizeof(ubPass));
-		params_default_lighting_t ubLighting {
-			.lightdir = ctx.lightdir,
-		};
-		sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_params_default_lighting, &ubLighting, sizeof(ubLighting));
-	};
-	context.plDefault.draw = [] (const Transform& transform) {
-		params_default_instance_t ubInstance {
-			.world = transform.world
-		};
-		sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_params_default_instance, &ubInstance, sizeof(ubInstance));
-	};
+	context.plDefault = MakePipeline(
+		context,
+		&default_shader_desc,
+		[] (const Context& ctx) {
+			params_default_pass_t ubPass {
+				.view = ctx.view,
+				.proj = ctx.proj,
+			};
+			sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_params_default_pass, &ubPass, sizeof(ubPass));
+			params_default_lighting_t ubLighting {
+				.lightdir = ctx.lightdir,
+			};
+			sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_params_default_lighting, &ubLighting, sizeof(ubLighting));
+		},
+		[] (const Transform& transform) {
+			params_default_instance_t ubInstance {
+				.world = transform.world
+			};
+			sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_params_default_instance, &ubInstance, sizeof(ubInstance));
+		}
+	);
 
 	context.txWhite = MakeTextureRGBA(2, 2, { 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff });
 	context.txChecker = MakeTextureRGBA(2, 2, { 0xffffffff, 0x000000ff, 0x000000ff, 0xffffffff });
