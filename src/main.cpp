@@ -10,45 +10,68 @@ public:
 	pe::Mesh model;
 	std::vector<std::pair<pe::vec2, pe::Mesh>> ground;
 	pe::vec2 camAngles{ 0, 0 };
+	pe::vec3 camPos{ 0, 0, 0 };
 };
 
 bool init(pe::Context& ctx, Game& g, const pe::InitParams& params)
 {
 	g.model = pe::LoadMesh(ctx, "pipo.ply").value_or(g.model);
 
-	const float gsz = 10.0f;
-	g.ground.reserve(5 * 5);
-	for (int i = -2; i <= 2; ++i) {
-		for (int j = -2; j <= 2; ++j) {
+	tinyddsloader::DDSFile hmap;
+	auto loadStatus = hmap.Load("hmap.dds");
+	const int hmapWidth = hmap.GetWidth();
+	const int hmapHeight = hmap.GetHeight();
+	std::cout << "Hmap " << hmapWidth << "x" << hmapHeight << " " << hmap.GetMipCount() << " mipmaps\n";
+	std::cout << "\t-> " << loadStatus << "\n";
+	const tinyddsloader::DDSFile::ImageData* hmapData = hmap.GetImageData();
+	const uint8_t* hmapPtr = (const uint8_t*)hmapData->m_mem;
+
+	const float gsz = 16.0f;
+	const int tx = hmapWidth / 24;
+	const int ty = hmapHeight / 24;
+	g.ground.reserve(tx * ty);
+	for (int i = 0; i < tx; ++i) {
+		for (int j = 0; j < ty; ++j) {
 			auto msh = pe::MakeHMap(ctx,
-				i * 24, j * 24,
+				1 + i * 24, 1 + j * 24,
 				25, 25,
 				{ -gsz, -gsz },
 				{  gsz,  gsz },
 				[&] (int x, int y) {
-					const float sc = 0.5f;
-					return 0.5f * (sin(sc * x) + sin(sc * y)) - 2.0f;
+					x = std::max(0, std::min(hmapWidth, x));
+					y = std::max(0, std::min(hmapHeight, y));
+					const int o = (y * hmapWidth + x) * 4;
+					const int iz0 = hmapPtr[o + 1];
+					const int iz1 = hmapPtr[o + 2];
+					const int iz2 = hmapPtr[o + 0];
+					const float fz0 = (iz0 * 50.0f) / 255.0f;
+					const float fz1 = (iz1 * 100.0f) / 255.0f;
+					const float fz2 = (iz2 * 5.0f) / 255.0f;
+					return fz0 + fz1 + fz2 - 100.0f;
+					//const float sc = 0.5f;
+					//return 0.5f * (sin(sc * x) + sin(sc * y)) - 2.0f;
 				}
 			);
 			msh.diffuse = ctx.txChecker;
-			g.ground.push_back({ { i * 2.0f * gsz, j * 2.0f * gsz }, msh });
+			g.ground.push_back({ { (i - tx / 2) * 2.0f * gsz, (j - ty / 2) * 2.0f * gsz }, msh });
 		}
 	}
 
+	const float wsz = 500.0f;
+	const float wh = -55.0f;
 	const std::array<float, 2> uv{ 0.5f, 0.5f };
 	const std::array<float, 3> n { 0, 0, 1 };
-	g.test = pe::MakeMesh(ctx,
-		{
-			{ { -0.5f, -0.5f, 0.0f }, n, uv, 0xffff0000 },
-			{ {  0.5f, -0.5f, 0.0f }, n, uv, 0xff00ff00 },
-			{ { -0.5f,  0.5f, 0.0f }, n, uv, 0xff0000ff },
-			{ {  0.5f,  0.5f, 0.0f }, n, uv, 0xffffffff },
-		},
-		{
-			0, 1, 2,
-			1, 3, 2,
-		}
-	);
+	const std::vector<pe::BaseVertex> vertice =  {
+		{ { -wsz, -wsz, wh }, n, uv, 0xffff0000 },
+		{ {  wsz, -wsz, wh }, n, uv, 0xffff0000 },
+		{ { -wsz,  wsz, wh }, n, uv, 0xffff0000 },
+		{ {  wsz,  wsz, wh }, n, uv, 0xffff0000 },
+	};
+	const std::vector<uint16_t> indice = {
+		0, 1, 2,
+		1, 3, 2,
+	};
+	g.test = pe::MakeMesh(ctx, vertice, indice);
 
 	return true;
 }
@@ -66,11 +89,12 @@ bool draw(pe::Context& ctx, Game& g, const pe::DrawParams& params)
 		};
 		const hmm_mat4 r1 = HMM_Rotate(g.camAngles.X, { 0, 0, 1 });
 		const hmm_mat4 r2 = HMM_Rotate(g.camAngles.Y, { 1, 0, 0 });
-		const pe::mat4 camView = r2 * r0 * r1;
+		const hmm_mat4 t = HMM_Translate(g.camPos);
+		const pe::mat4 camView = r2 * r0 * r1 * t;
 
 		pe::SetCamera(
 			ctx,
-			HMM_Perspective(90.0f, w / float(h), 0.1f, 100.0f),
+			HMM_Perspective(90.0f, w / float(h), 0.1f, 2000.0f),
 			camView
 		);
 

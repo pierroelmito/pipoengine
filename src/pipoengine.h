@@ -4,7 +4,9 @@
 #include <algorithm>
 #include <string_view>
 #include <vector>
+#include <map>
 #include <array>
+#include <variant>
 
 #include <SDL2/SDL.h>
 #include <GL/glew.h>
@@ -13,6 +15,9 @@
 #include "sokol_time.h"
 #include "sokol_gfx.h"
 #include "HandmadeMath.h"
+#pragma GCC  diagnostic ignored "-Wswitch"
+#include "tinyddsloader.h"
+#pragma GCC  diagnostic pop
 
 namespace pipoengine {
 
@@ -69,6 +74,8 @@ struct Context
 	mat4 view;
 	mat4 proj;
 	vec3 lightdir;
+
+	std::map<std::pair<int, int>, std::pair<sg_buffer, int>> hmapIndexBuffer;
 
 	lua_State* interp{ nullptr };
 
@@ -133,7 +140,10 @@ Pipeline MakePipeline(Context&, const sg_shader_desc* (*fn)(), std::function<voi
 
 Texture MakeTextureRGBA(int w, int h, const std::vector<uint32_t>& data);
 
-Mesh MakeMesh(Context&, const std::vector<BaseVertex>& vertice, const std::vector<uint16_t>& indice);
+Mesh MakeMesh(
+	Context& context,
+	const std::variant<sg_buffer, std::vector<BaseVertex>>& vertice,
+	const std::variant<std::pair<sg_buffer, int>, std::vector<uint16_t>>& indice);
 Mesh MakeHMap(Context& ctx, int ox, int oy, int w, int h, vec2 min, vec2 max, const std::function<float(int, int)>& f);
 std::optional<Mesh> LoadMesh(Context& context, std::string_view path);
 

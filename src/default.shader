@@ -1,8 +1,5 @@
 
-@ctype mat4 pipoengine::mat4
-@ctype vec4 pipoengine::vec4
-@ctype vec3 pipoengine::vec3
-@ctype vec2 pipoengine::vec2
+@include common.shader
 
 @vs vs_default
 
@@ -15,10 +12,7 @@ uniform params_default_instance {
 	mat4 world;
 };
 
-in vec3 vposition;
-in vec3 vnormal;
-in vec2 vtextcoord;
-in vec4 vcolor;
+@include_block base_vertex
 
 out vec4 pcolor;
 out vec3 pnormal;
@@ -60,7 +54,7 @@ void main() {
 	vec3 viewdir = normalize(pworldpos - pcampos);
 	vec3 rdir = reflect(viewdir, n);
 	float depth = length(pworldpos - pcampos);
-	float fog = 1.0f - exp(0.01f * -depth);
+	float fog = 1.0f - exp(0.001f * -depth);
 
 	float ndotl = dot(lightdir, n);
 	float ndotr = dot(lightdir, rdir);

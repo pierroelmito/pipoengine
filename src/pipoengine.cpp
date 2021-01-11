@@ -2,12 +2,12 @@
 #define SOKOL_GLCORE33
 #define SOKOL_IMPL
 #define HANDMADE_MATH_IMPLEMENTATION
+#define TINYDDSLOADER_IMPLEMENTATION
 
 #include "pipoengine.h"
 
 #include "shader_default.inl"
 
-#include <map>
 #include <sstream>
 #include <fstream>
 
@@ -24,19 +24,37 @@ void SetLight(Context& ctx, const vec3& lightdir)
 	ctx.lightdir = lightdir;
 }
 
-Mesh MakeMesh(Context& context, const std::vector<BaseVertex>& vertice, const std::vector<uint16_t>& indice)
+Mesh MakeMesh(
+	Context& context,
+	const std::variant<sg_buffer, std::vector<BaseVertex>>& vertice,
+	const std::variant<std::pair<sg_buffer, int>, std::vector<uint16_t>>& indice)
 {
-	auto vid = sg_make_buffer({
-		.size = int(vertice.size() * sizeof(BaseVertex)),
-		.type = SG_BUFFERTYPE_VERTEXBUFFER,
-		.content = &vertice[0],
-	});
-	auto iid = sg_make_buffer({
-		.size = int(indice.size() * sizeof(uint16_t)),
-		.type = SG_BUFFERTYPE_INDEXBUFFER,
-		.content = &indice[0],
-	});
-	return { &context.plDefault, context.txWhite, vid, iid, int(indice.size()) };
+	std::optional<sg_buffer> vid, iid;
+	int sz;
+
+	if (const sg_buffer* pvid = std::get_if<sg_buffer>(&vertice); pvid) {
+		vid = *pvid;
+	} else if (const std::vector<BaseVertex>* vdata = std::get_if<std::vector<BaseVertex>>(&vertice); vdata) {
+		vid = sg_make_buffer({
+			.size = int(vdata->size() * sizeof(BaseVertex)),
+			.type = SG_BUFFERTYPE_VERTEXBUFFER,
+			.content = &((*vdata)[0]),
+		});
+	}
+
+	if (const std::pair<sg_buffer, int>* piid = std::get_if<std::pair<sg_buffer, int>>(&indice); piid) {
+		iid = piid->first;
+		sz = piid->second;
+	} else if (const std::vector<uint16_t>* idata = std::get_if<std::vector<uint16_t>>(&indice); idata) {
+		iid = sg_make_buffer({
+			.size = int(idata->size() * sizeof(uint16_t)),
+			.type = SG_BUFFERTYPE_INDEXBUFFER,
+			.content = &((*idata)[0]),
+		});
+		sz = idata->size();
+	}
+
+	return { &context.plDefault, context.txWhite, *vid, *iid, sz };
 }
 
 Mesh MakeHMap(Context& context, int ox, int oy, int w, int h, vec2 min, vec2 max, const std::function<float(int, int)>& f)
@@ -44,23 +62,30 @@ Mesh MakeHMap(Context& context, int ox, int oy, int w, int h, vec2 min, vec2 max
 	std::vector<BaseVertex> vertice;
 	std::vector<uint16_t> indice;
 
-	vertice.reserve(w * h);
-	indice.reserve(6 * (w - 1) * (h - 1));
+	const float xsz = (max.X - min.X) / w;
+	const float ysz = (max.Y - min.Y) / h;
 
+	vertice.reserve(w * h);
 	for (int y = 0; y < h; ++y) {
 		const float ry = (float(y) / float(h - 1));
 		const float fy = min.Y + (max.Y - min.Y) * ry;
 		for (int x = 0; x < w; ++x) {
 			const float rx = (float(x) / float(w - 1));
 			const float fx = min.X + (max.X - min.X) * rx;
+
 			const float tz = f(ox + x, oy + y);
 			const float zl = f(ox + x - 1, oy + y);
 			const float zr = f(ox + x + 1, oy + y);
 			const float zu = f(ox + x, oy + y - 1);
 			const float zd = f(ox + x, oy + y + 1);
+
 			const float dx = zl - zr;
 			const float dy = zu - zd;
-			const vec3 n{ dx, dy, 2 };
+
+			const vec3 v0{ -2.0f * xsz, 0.0f, dx };
+			const vec3 v1{ 0.0f, -2.0f * ysz, dy };
+			const vec3 n = HMM_Normalize(HMM_Cross(v0, v1));
+
 			vertice.push_back({
 				{ fx, fy, tz },
 				{ n.X, n.Y, n.Z },
@@ -70,23 +95,33 @@ Mesh MakeHMap(Context& context, int ox, int oy, int w, int h, vec2 min, vec2 max
 		}
 	}
 
-	for (int y = 0; y < h - 1; ++y) {
-		for (int x = 0; x < w - 1; ++x) {
-			const uint16_t i0 = y * w + x;
-			const uint16_t i1 = i0 + 1;
-			const uint16_t i2 = i0 + w;
-			const uint16_t i3 = i1 + w;
-			if ((x ^ y) & 1) {
-				const std::array<uint16_t, 6> face{ i0, i3, i2, i1, i3, i0 };
-				indice.insert(indice.end(), face.begin(), face.end());
-			} else {
-				const std::array<uint16_t, 6> face{ i0, i1, i2, i1, i3, i2 };
-				indice.insert(indice.end(), face.begin(), face.end());
+	auto& hmapIid = context.hmapIndexBuffer[{ w, h }];
+	if (hmapIid.second == 0) {
+		indice.reserve(6 * (w - 1) * (h - 1));
+		for (int y = 0; y < h - 1; ++y) {
+			for (int x = 0; x < w - 1; ++x) {
+				const uint16_t i0 = y * w + x;
+				const uint16_t i1 = i0 + 1;
+				const uint16_t i2 = i0 + w;
+				const uint16_t i3 = i1 + w;
+				if ((x ^ y) & 1) {
+					const std::array<uint16_t, 6> face{ i0, i3, i2, i1, i3, i0 };
+					indice.insert(indice.end(), face.begin(), face.end());
+				} else {
+					const std::array<uint16_t, 6> face{ i0, i1, i2, i1, i3, i2 };
+					indice.insert(indice.end(), face.begin(), face.end());
+				}
 			}
 		}
+		auto iid = sg_make_buffer({
+			.size = int(indice.size() * sizeof(uint16_t)),
+			.type = SG_BUFFERTYPE_INDEXBUFFER,
+			.content = &indice[0],
+		});
+		hmapIid = { iid, indice.size() };
 	}
 
-	return MakeMesh(context, vertice, indice);
+	return MakeMesh(context, vertice, hmapIid);
 }
 
 std::optional<Mesh> LoadMesh(Context& context, std::string_view path)
@@ -237,7 +272,7 @@ Pipeline MakePipeline(Context&, const sg_shader_desc* (*fn)(), std::function<voi
 			.depth_write_enabled = true,
 		},
 		.rasterizer {
-			.cull_mode = SG_CULLMODE_NONE
+			.cull_mode = SG_CULLMODE_BACK,
 		},
 	};
 
@@ -285,7 +320,9 @@ bool Init(Context& context)
 
 	glewInit();
 
-	sg_desc desc_sg {};
+	sg_desc desc_sg {
+		.buffer_pool_size = 2048,
+	};
 
 	stm_setup();
 	sg_setup(&desc_sg);
