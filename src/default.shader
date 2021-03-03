@@ -53,18 +53,20 @@ void main() {
 	vec3 n = normalize(pnormal);
 	vec3 viewdir = normalize(pworldpos - pcampos);
 	vec3 rdir = reflect(viewdir, n);
+	//vec3 rdir = -normalize(lightdir + viewdir);
 	float depth = length(pworldpos - pcampos);
 	float fog = 1.0f - exp(0.001f * -depth);
 
 	float ndotl = dot(lightdir, n);
 	float ndotr = dot(lightdir, rdir);
+	//float ndotr = max(0, dot(rdir, n));
 	float diff = pow(0.5 * (1 +  ndotl), 2);
-	float spec = pow(max(0, dot(lightdir, rdir)), 32);
-	float fresnel = pow(1 - dot(n, -viewdir), 4);
+	float spec = pow(ndotr, 32);
+	float fresnel = pow(1 - abs(dot(n, -viewdir)), 16);
 
 	fragcolor = vec4(diff.xxx, 1) * pcolor * texture(texDiffuse, ptextcoord.xy);
-	fragcolor.xyz = fragcolor.xyz + 0.3f * fresnel.xxx;
-	fragcolor.xyz = fragcolor.xyz + 0.7f * spec.xxx;
+	fragcolor.xyz = fragcolor.xyz + (diff * 0.5f * fresnel).xxx;
+	fragcolor.xyz = fragcolor.xyz + 0.3f * spec.xxx;
 	fragcolor.xyz = mix(fragcolor.xyz, vec3(0.3, 0.3, 0.6), fog);
 }
 

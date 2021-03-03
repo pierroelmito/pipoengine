@@ -57,15 +57,18 @@ Mesh MakeMesh(
 	return { &context.plDefault, context.txWhite, *vid, *iid, sz };
 }
 
-Mesh MakeHMap(Context& context, int ox, int oy, int w, int h, vec2 min, vec2 max, const std::function<float(int, int)>& f)
+Mesh MakeHMap(Context& context, const int ox, const int oy, const int w, const int h, const vec2 min, const vec2 max, const std::function<float(int, int)>& f)
 {
 	std::vector<BaseVertex> vertice;
+	std::vector<vec3> normals;
 	std::vector<uint16_t> indice;
 
 	const float xsz = (max.X - min.X) / w;
 	const float ysz = (max.Y - min.Y) / h;
+	const float mweight = 4.0f;
 
 	vertice.reserve(w * h);
+	normals.reserve(w * h);
 	for (int y = 0; y < h; ++y) {
 		const float ry = (float(y) / float(h - 1));
 		const float fy = min.Y + (max.Y - min.Y) * ry;
@@ -78,14 +81,19 @@ Mesh MakeHMap(Context& context, int ox, int oy, int w, int h, vec2 min, vec2 max
 			const float zr = f(ox + x + 1, oy + y);
 			const float zu = f(ox + x, oy + y - 1);
 			const float zd = f(ox + x, oy + y + 1);
+			const float zul = f(ox + x - 1, oy + y - 1);
+			const float zur = f(ox + x + 1, oy + y - 1);
+			const float zdl = f(ox + x - 1, oy + y + 1);
+			const float zdr = f(ox + x + 1, oy + y + 1);
 
-			const float dx = zl - zr;
-			const float dy = zu - zd;
+			const float dx = (mweight * (zl - zr) + (zul - zur) + (zdr - zdl)) / (2.0f + mweight);
+			const float dy = (mweight * (zu - zd) + (zul - zdl) + (zur - zdr)) / (2.0f + mweight);
 
 			const vec3 v0{ -2.0f * xsz, 0.0f, dx };
 			const vec3 v1{ 0.0f, -2.0f * ysz, dy };
 			const vec3 n = HMM_Normalize(HMM_Cross(v0, v1));
 
+			normals.push_back(n);
 			vertice.push_back({
 				{ fx, fy, tz },
 				{ n.X, n.Y, n.Z },
@@ -260,6 +268,68 @@ Texture MakeTextureRGBA(int w, int h, const std::vector<uint32_t>& data)
 	return { iid };
 }
 
+std::optional<Texture> LoadDDS(const std::vector<std::string>& arrayItems)
+{
+	tinyddsloader::DDSFile dds;
+
+	auto loadStatus = dds.Load(arrayItems[0].c_str());
+
+	const int w = dds.GetWidth();
+	const int h = dds.GetHeight();
+	const int mips = dds.GetMipCount();
+
+	sg_image_desc img_desc {
+		.width = w,
+		.height = h,
+		.num_mipmaps = mips,
+		.max_anisotropy = 4,
+	};
+
+	for (int i = 0; i < mips; ++i) {
+		const tinyddsloader::DDSFile::ImageData* data = dds.GetImageData(i);
+		img_desc.content.subimage[0][i] = {
+			.ptr = data->m_mem,
+			.size = int(data->m_memSlicePitch),
+		};
+	}
+
+	Texture tex{ sg_make_image(&img_desc) };
+	return tex;
+}
+
+void LoadPPM(
+	std::string_view path,
+	const std::function<void (int, int)>& init,
+	const std::function<void (std::array<float, 3>)>& pix
+)
+{
+	FILE* f = fopen(path.data(), "rb");
+
+	char buffer[256];
+	fgets(buffer, sizeof(buffer), f);
+	std::cout << buffer;
+	fgets(buffer, sizeof(buffer), f);
+	std::cout << buffer;
+	fgets(buffer, sizeof(buffer), f);
+	std::cout << buffer;
+	fgets(buffer, sizeof(buffer), f);
+	std::cout << buffer;
+
+	init(512, 512);
+	uint8_t rgb[6];
+	const int s0 = 8;
+	const int s1 = 0;
+	for (int y = 0; y < 512; ++y) {
+		for (int x = 0; x < 512; ++x) {
+			size_t ct = fread(&rgb, 1, 6, f);
+			int r = (rgb[0] << s0) + (rgb[1] << s1);
+			int g = (rgb[2] << s0) + (rgb[3] << s1);
+			int b = (rgb[4] << s0) + (rgb[5] << s1);
+			pix({ float(r) / 65535.0f, float(g) / 65535.0f, float(b) / 65535.0f });
+		}
+	}
+}
+
 Pipeline MakePipeline(Context&, const sg_shader_desc* (*fn)(), std::function<void(const Context& ctx)> frame, std::function<void(const Transform&)> draw)
 {
 	sg_shader shader = sg_make_shader(fn());
@@ -305,10 +375,10 @@ bool Init(Context& context)
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
 	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-	//SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
-	//SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 4);
-	SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 0);
-	SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 1);
+	SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
+	SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 4);
+	//SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 0);
+	//SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 1);
 
 	constexpr auto flags = SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE;
 	context.window = SDL_CreateWindow("Window", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 1280, 720, flags);
@@ -367,6 +437,84 @@ bool Release(Context& context)
 	SDL_Quit();
 
 	return true;
+}
+
+int Loop(Context& context, const RunParams& params)
+{
+	unsigned int step = 0;
+	unsigned int frame = 0;
+
+	const unsigned int updateMs = 8;
+	const unsigned int frameMs = 1000 / 100;
+
+	double updateDuration {};
+	double frameDuration {};
+	double loopDuration {};
+
+	const uint64_t startTick = stm_now();
+	uint64_t loop = startTick;
+	uint64_t updateTick = startTick;
+	auto elapsed = [&] () -> double { return double(updateTick - startTick) / 100000.0; };
+
+	while(!SDL_QuitRequested()) {
+		loopDuration = 0.5 * (loopDuration + stm_ms(stm_laptime(&loop)));
+
+		SDL_Event e;
+		while (SDL_PollEvent(&e)) {
+			//switch (e.type) {
+			//case SDL_CONTROLLERDEVICEADDED:
+			//	break;
+			//case SDL_CONTROLLERDEVICEREMOVED:
+			//	break;
+			//case SDL_CONTROLLERDEVICEREMAPPED:
+			//	break;
+			//case SDL_KEYDOWN:
+			//	break;
+			//}
+			if (params.event)
+				params.event(context, { e });
+		}
+
+		const uint64_t currentTick = stm_now();
+		while (updateTick < currentTick) {
+			updateTick += updateMs * 1000000;
+			++step;
+			const uint64_t start = stm_now();
+			if (params.update)
+				params.update(context, { elapsed(), step, updateMs });
+			updateDuration = 0.5 * (updateDuration + stm_ms(stm_since(start)));
+		}
+
+		{
+			SDL_GL_GetDrawableSize(context.window, &context.frameWidth, &context.frameHeight);
+			++frame;
+			const uint64_t start = stm_now();
+			if (params.draw)
+				params.draw(context, { elapsed() });
+			frameDuration = 0.5 * (frameDuration + stm_ms(stm_since(start)));
+		}
+
+		SDL_GL_SwapWindow(context.window);
+
+		const unsigned int dt = static_cast<unsigned int>(stm_ms(stm_diff(stm_now(), loop)));
+		if (dt < frameMs)
+			SDL_Delay(frameMs - dt);
+	}
+
+	return 0;
+}
+
+int Exec(const RunParams& params)
+{
+	Context context;
+	Init(context);
+	if (params.init)
+		params.init(context, {});
+	Loop(context, params);
+	if (params.release)
+		params.release(context, {});
+	Release(context);
+	return 0;
 }
 
 }

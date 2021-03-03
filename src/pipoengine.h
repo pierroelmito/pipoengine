@@ -139,12 +139,19 @@ struct AttrInfo
 Pipeline MakePipeline(Context&, const sg_shader_desc* (*fn)(), std::function<void(const Context& ctx)> frame, std::function<void(const Transform&)> draw);
 
 Texture MakeTextureRGBA(int w, int h, const std::vector<uint32_t>& data);
+std::optional<Texture> LoadDDS(const std::vector<std::string>& arrayItems);
+void LoadPPM(
+	std::string_view path,
+	const std::function<void (int, int)>& init,
+	const std::function<void (std::array<float, 3>)>& pix
+);
 
 Mesh MakeMesh(
 	Context& context,
 	const std::variant<sg_buffer, std::vector<BaseVertex>>& vertice,
-	const std::variant<std::pair<sg_buffer, int>, std::vector<uint16_t>>& indice);
-Mesh MakeHMap(Context& ctx, int ox, int oy, int w, int h, vec2 min, vec2 max, const std::function<float(int, int)>& f);
+	const std::variant<std::pair<sg_buffer, int>, std::vector<uint16_t>>& indice
+);
+Mesh MakeHMap(Context& ctx, const int ox, const int oy, const int w, const int h, const vec2 min, const vec2 max, const std::function<float(int, int)>& f);
 std::optional<Mesh> LoadMesh(Context& context, std::string_view path);
 
 void DrawMesh(Context& ctx, const Mesh& mesh, const Transform& t);
@@ -152,8 +159,19 @@ void DrawMesh(Context& ctx, const Mesh& mesh, const Transform& t);
 void SetCamera(Context& ctx, const mat4& proj, const mat4& view);
 void SetLight(Context& ctx, const vec3& lightdir);
 
+struct RunParams
+{
+	std::function<bool(Context&, const InitParams&)> init {};
+	std::function<bool(Context&, const UpdateParams&)> update {};
+	std::function<bool(Context&, const DrawParams&)> draw {};
+	std::function<bool(Context&, const ReleaseParams&)> release {};
+	std::function<bool(Context&, const EventParams&)> event {};
+};
+
 bool Init(Context& context);
 bool Release(Context& context);
+int Loop(Context& context, const RunParams& params);
+int Exec(const RunParams& params);
 
 template <class FN>
 void RenderMain(Context& ctx, const FN& fn)
@@ -172,103 +190,6 @@ void RenderMain(Context& ctx, const FN& fn)
 
 	sg_end_pass();
 	sg_commit();
-}
-
-template <class DATA>
-struct Runner {
-
-	struct RunParams
-	{
-		std::function<bool(Context&, DATA&, const InitParams&)> init {};
-		std::function<bool(Context&, DATA&, const UpdateParams&)> update {};
-		std::function<bool(Context&, DATA&, const DrawParams&)> draw {};
-		std::function<bool(Context&, DATA&, const ReleaseParams&)> release {};
-		std::function<bool(Context&, DATA&, const EventParams&)> event {};
-	};
-
-	static int loop(Context& context, DATA& data, const RunParams& params)
-	{
-		unsigned int step = 0;
-		unsigned int frame = 0;
-
-		const unsigned int updateMs = 8;
-		const unsigned int frameMs = 1000 / 100;
-
-		double updateDuration {};
-		double frameDuration {};
-		double loopDuration {};
-
-		const uint64_t startTick = stm_now();
-		uint64_t loop = startTick;
-		uint64_t updateTick = startTick;
-		auto elapsed = [&] () -> double { return double(updateTick - startTick) / 100000.0; };
-
-		while(!SDL_QuitRequested()) {
-			loopDuration = 0.5 * (loopDuration + stm_ms(stm_laptime(&loop)));
-
-			SDL_Event e;
-			while (SDL_PollEvent(&e)) {
-				//switch (e.type) {
-				//case SDL_CONTROLLERDEVICEADDED:
-				//	break;
-				//case SDL_CONTROLLERDEVICEREMOVED:
-				//	break;
-				//case SDL_CONTROLLERDEVICEREMAPPED:
-				//	break;
-				//case SDL_KEYDOWN:
-				//	break;
-				//}
-				if (params.event)
-					params.event(context, data, { e });
-			}
-
-			const uint64_t currentTick = stm_now();
-			while (updateTick < currentTick) {
-				updateTick += updateMs * 1000000;
-				++step;
-				const uint64_t start = stm_now();
-				if (params.update)
-					params.update(context, data, { elapsed(), step, updateMs });
-				updateDuration = 0.5 * (updateDuration + stm_ms(stm_since(start)));
-			}
-
-			{
-				SDL_GL_GetDrawableSize(context.window, &context.frameWidth, &context.frameHeight);
-				++frame;
-				const uint64_t start = stm_now();
-				if (params.draw)
-					params.draw(context, data, { elapsed() });
-				frameDuration = 0.5 * (frameDuration + stm_ms(stm_since(start)));
-			}
-
-			SDL_GL_SwapWindow(context.window);
-
-			const unsigned int dt = static_cast<unsigned int>(stm_ms(stm_diff(stm_now(), loop)));
-			if (dt < frameMs)
-				SDL_Delay(frameMs - dt);
-		}
-
-		return 0;
-	}
-
-	static int exec(DATA& data, const RunParams& params)
-	{
-		Context context;
-		Init(context);
-		if (params.init)
-			params.init(context, data, {});
-		loop(context, data, params);
-		if (params.release)
-			params.release(context, data, {});
-		Release(context);
-		return 0;
-	}
-};
-
-template <class T>
-int Run(T& data, const typename Runner<T>::RunParams& params)
-{
-	return Runner<T>::exec(data, params);
 }
 
 }
