@@ -36,9 +36,9 @@ Mesh MakeMesh(
 		vid = *pvid;
 	} else if (const std::vector<BaseVertex>* vdata = std::get_if<std::vector<BaseVertex>>(&vertice); vdata) {
 		vid = sg_make_buffer({
-			.size = int(vdata->size() * sizeof(BaseVertex)),
+			//.size = int(vdata->size() * sizeof(BaseVertex)),
 			.type = SG_BUFFERTYPE_VERTEXBUFFER,
-			.content = &((*vdata)[0]),
+			.data = { &((*vdata)[0]), vdata->size() * sizeof(BaseVertex) },
 		});
 	}
 
@@ -47,9 +47,9 @@ Mesh MakeMesh(
 		sz = piid->second;
 	} else if (const std::vector<uint16_t>* idata = std::get_if<std::vector<uint16_t>>(&indice); idata) {
 		iid = sg_make_buffer({
-			.size = int(idata->size() * sizeof(uint16_t)),
+			//.size = int(idata->size() * sizeof(uint16_t)),
 			.type = SG_BUFFERTYPE_INDEXBUFFER,
-			.content = &((*idata)[0]),
+			.data = { &((*idata)[0]), idata->size() * sizeof(uint16_t) },
 		});
 		sz = idata->size();
 	}
@@ -122,9 +122,8 @@ Mesh MakeHMap(Context& context, const int ox, const int oy, const int w, const i
 			}
 		}
 		auto iid = sg_make_buffer({
-			.size = int(indice.size() * sizeof(uint16_t)),
 			.type = SG_BUFFERTYPE_INDEXBUFFER,
-			.content = &indice[0],
+			.data= { &indice[0], indice.size() * sizeof(uint16_t) },
 		});
 		hmapIid = { iid, indice.size() };
 	}
@@ -259,9 +258,9 @@ Texture MakeTextureRGBA(int w, int h, const std::vector<uint32_t>& data)
 	auto iid = sg_make_image({
 		.width = w,
 		.height = h,
-		.content = {
+		.data = {
 			.subimage = {
-				{ { &data[0], w * h * 4 } }
+				{ { &data[0], w * h * 4u } }
 			}
 		}
 	});
@@ -272,7 +271,7 @@ std::optional<Texture> LoadDDS(const std::vector<std::string>& arrayItems)
 {
 	tinyddsloader::DDSFile dds;
 
-	auto loadStatus = dds.Load(arrayItems[0].c_str());
+	/*auto loadStatus =*/ dds.Load(arrayItems[0].c_str());
 
 	const int w = dds.GetWidth();
 	const int h = dds.GetHeight();
@@ -287,9 +286,9 @@ std::optional<Texture> LoadDDS(const std::vector<std::string>& arrayItems)
 
 	for (int i = 0; i < mips; ++i) {
 		const tinyddsloader::DDSFile::ImageData* data = dds.GetImageData(i);
-		img_desc.content.subimage[0][i] = {
+		img_desc.data.subimage[0][i] = {
 			.ptr = data->m_mem,
-			.size = int(data->m_memSlicePitch),
+			.size = data->m_memSlicePitch,
 		};
 	}
 
@@ -321,7 +320,7 @@ void LoadPPM(
 	const int s1 = 0;
 	for (int y = 0; y < 512; ++y) {
 		for (int x = 0; x < 512; ++x) {
-			size_t ct = fread(&rgb, 1, 6, f);
+			/*size_t ct =*/ fread(&rgb, 1, 6, f);
 			int r = (rgb[0] << s0) + (rgb[1] << s1);
 			int g = (rgb[2] << s0) + (rgb[3] << s1);
 			int b = (rgb[4] << s0) + (rgb[5] << s1);
@@ -330,20 +329,18 @@ void LoadPPM(
 	}
 }
 
-Pipeline MakePipeline(Context&, const sg_shader_desc* (*fn)(), std::function<void(const Context& ctx)> frame, std::function<void(const Transform&)> draw)
+Pipeline MakePipeline(Context&, const sg_shader_desc* (*fn)(sg_backend), std::function<void(const Context& ctx)> frame, std::function<void(const Transform&)> draw)
 {
-	sg_shader shader = sg_make_shader(fn());
+	sg_shader shader = sg_make_shader(fn(sg_query_backend()));
 
 	sg_pipeline_desc pip_desc{
 		.shader = shader,
+		.depth = {
+			.compare = SG_COMPAREFUNC_LESS,
+			.write_enabled = true,
+		},
 		.index_type = SG_INDEXTYPE_UINT16,
-		.depth_stencil = {
-			.depth_compare_func = SG_COMPAREFUNC_LESS,
-			.depth_write_enabled = true,
-		},
-		.rasterizer {
-			.cull_mode = SG_CULLMODE_BACK,
-		},
+		.cull_mode = SG_CULLMODE_BACK,
 	};
 
 	using VtxInfo = AttrInfo<BaseVertex>;
@@ -407,17 +404,17 @@ bool Init(Context& context)
 				.view = ctx.view,
 				.proj = ctx.proj,
 			};
-			sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_params_default_pass, &ubPass, sizeof(ubPass));
+			sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_params_default_pass, { &ubPass, sizeof(ubPass) });
 			params_default_lighting_t ubLighting {
 				.lightdir = ctx.lightdir,
 			};
-			sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_params_default_lighting, &ubLighting, sizeof(ubLighting));
+			sg_apply_uniforms(SG_SHADERSTAGE_FS, SLOT_params_default_lighting, { &ubLighting, sizeof(ubLighting) });
 		},
 		[] (const Transform& transform) {
 			params_default_instance_t ubInstance {
 				.world = transform.world
 			};
-			sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_params_default_instance, &ubInstance, sizeof(ubInstance));
+			sg_apply_uniforms(SG_SHADERSTAGE_VS, SLOT_params_default_instance, { &ubInstance, sizeof(ubInstance) });
 		}
 	);
 
